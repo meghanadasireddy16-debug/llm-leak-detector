@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.env
+
+# Streamlit
+.streamlit/
+
+# Models/Large Files
+models/
+.cache/
