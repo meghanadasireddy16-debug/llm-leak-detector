@@ -1,74 +1,63 @@
 import streamlit as st
 from detector import LLMLeakDetector
+import time
 
-# Page Config
-st.set_page_config(page_title="AI Data Leakage Detector", page_icon="🛡️")
+st.set_page_config(page_title="Sentinel-LLM V2", page_icon="🛡️", layout="wide")
 
-# Initialize the detector (cached so it doesn't reload the AI model every time)
 @st.cache_resource
 def get_detector():
     return LLMLeakDetector()
 
 detector = get_detector()
 
-# UI Layout
-st.title("🛡️ LLM Data Leakage Detector")
-st.markdown("""
-This tool scans AI model outputs for **PII**, **Secrets**, and **Proprietary Code Leakage** before they reach the end user.
-""")
+# --- SIDEBAR CONFIGURATION ---
+st.sidebar.header("🛡️ Security Configuration")
+st.sidebar.subheader("Detection Sensitivity")
 
-# Sidebar Settings
-st.sidebar.header("Scan Settings")
-pii_threshold = st.sidebar.slider("PII Confidence Threshold", 0.1, 1.0, 0.4)
-code_threshold = st.sidebar.slider("Code Similarity Threshold", 0.1, 1.0, 0.7)
+# Restore the sliders
+pii_thresh = st.sidebar.slider("PII Confidence Threshold", 0.1, 1.0, 0.4, help="Lower values catch more PII but increase false positives.")
+code_thresh = st.sidebar.slider("Code Similarity Threshold", 0.1, 1.0, 0.7, help="Lower values make the IP detector more aggressive.")
 
-# Main Input Area
-user_input = st.text_area("Paste LLM Output here:", height=200, placeholder="Example: The secret key is sk-12345...")
+st.sidebar.divider()
+st.sidebar.info("**V2.0 Core Engines:**\n- Injection: DeBERTa-v3\n- IP: MiniLM-L6 (Hybrid)\n- PII: Presidio/SpaCy")
 
-if st.button("Run Security Scan"):
+# --- MAIN UI ---
+st.title("🛡️ Sentinel-LLM: Bi-Directional Guardrail")
+st.markdown("Automated protection against Prompt Injection & Sensitive Data Leakage.")
+
+user_input = st.text_area("Input Prompt or LLM Output:", height=150, placeholder="Paste suspicious text here...")
+
+if st.button("🛡️ Run Security Audit"):
     if user_input:
-        st.divider()
+        start = time.time()
         
-        # 1. Run Scans
-        with st.spinner("Analyzing for security risks..."):
-            pii_findings = detector.scan_pii(user_input)
-            secret_findings = detector.scan_secrets(user_input)
-            code_leaks = detector.scan_code_leakage(user_input, threshold=code_threshold)
+        # Pass the slider values to the report engine
+        report = detector.run_report(user_input, pii_threshold=pii_thresh, code_threshold=code_thresh)
+        f = report['findings']
         
-        # 2. Display Results in Columns
-        col1, col2, col3 = st.columns(3)
-        col1.metric("PII Found", len(pii_findings))
-        col2.metric("Secrets Found", len(secret_findings))
-        col3.metric("IP Leaks", len(code_leaks))
+        # Metrics Display
+        col1, col2, col3, col4 = st.columns(4)
+        inj_label, inj_score = f['inj']
+        
+        col1.metric("Input Status", inj_label, delta=f"{inj_score:.2%}", delta_color="inverse" if inj_label != "SAFE" else "normal")
+        col2.metric("PII Found", len(f['pii']))
+        col3.metric("Secrets Found", len(f['secrets']))
+        col4.metric("IP Leaks", len(f['leaks']))
 
-        # 3. Detailed Alerts
-        if pii_findings or secret_findings or code_leaks:
-            st.warning("⚠️ Security Risks Detected!")
-            
-            with st.expander("See Detailed Findings"):
-                if pii_findings:
-                    for f in pii_findings:
-                        st.write(f"- **PII**: {f.entity_type} (Confidence: {f.score:.2f})")
-                if secret_findings:
-                    for s in secret_findings:
-                        st.write(f"- **Secret**: {s['type']} detected")
-                if code_leaks:
-                    for c in code_leaks:
-                        st.error(f"- **IP LEAK**: {int(c['score']*100)}% similarity to proprietary code.")
-                        st.code(c['matched_snippet'])
-
-            # 4. Show Sanitized Output
-            st.subheader("Sanitized Output")
-            sanitized_text = detector.run_report(user_input) # We use the existing logic
-            st.info(sanitized_text)
-            
+        # Alert Logic
+        if report['status'] == "BLOCKED":
+            st.error(f"🚨 RESPONSE BLOCKED: Security Threat Detected")
+            with st.expander("Security Audit Details"):
+                if inj_label != "SAFE": st.write(f"**Injection Engine:** Detected '{inj_label}' with {inj_score:.2%} confidence.")
+                if f['leaks']: st.write(f"**IP Protection:** {len(f['leaks'])} proprietary snippet(s) flagged.")
         else:
-            st.success("✅ No sensitive data detected based on current thresholds.")
-    else:
-        st.error("Please enter some text to scan.")
+            st.success("✅ Analysis Complete: No blocking threats detected.")
 
-# Footer for Portfolio
-st.sidebar.info("Developed for AI Security Engineering Portfolio")
+        st.subheader("Final Output")
+        st.code(report['final_text'], language="text")
+        st.caption(f"Audit completed in {time.time() - start:.2f}s")
+    else:
+        st.error("Please enter text to scan.")
 
 
 #streamlit run app.py
