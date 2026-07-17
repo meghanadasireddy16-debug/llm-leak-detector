@@ -17,7 +17,7 @@ The result is a programmable "security sidecar" suitable for portfolio demos, se
 
 ![1782121567339.gif](https://github.com/user-attachments/assets/e251b988-f2a3-4f27-b2e0-9e08f11063cd)
 
-[📺 Watch the Technical Demo on Loom](https://www.loom.com/share/848661f6acec4384bc4ad4a8ac797860)
+[📺 Watch the Technical Demo on Loom](https://www.loom.com/share/5bda54e4707a458d920e838b2b97e769)
 
 ---
 ## 🔥 Key Security Features
