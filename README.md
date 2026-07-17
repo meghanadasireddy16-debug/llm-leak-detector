@@ -43,6 +43,7 @@ Text is evaluated through inbound and outbound engines, with unified blocking an
 
 ```mermaid
 graph TD
+
     A[User Prompt / LLM Output] --> B{Security Engine}
     B --> C[Inbound: Injection Detector]
     B --> D[Outbound: NER PII Scanner]
