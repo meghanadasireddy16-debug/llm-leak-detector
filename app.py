@@ -2,7 +2,7 @@ import streamlit as st
 from detector import LLMLeakDetector
 import time
 
-st.set_page_config(page_title="Sentinel-LLM V2", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Sentinel-LLM V3.0", page_icon="🛡️", layout="wide")
 
 @st.cache_resource
 def get_detector():
@@ -10,54 +10,76 @@ def get_detector():
 
 detector = get_detector()
 
-# --- SIDEBAR CONFIGURATION ---
-st.sidebar.header("🛡️ Security Configuration")
-st.sidebar.subheader("Detection Sensitivity")
-
-# Restore the sliders
-pii_thresh = st.sidebar.slider("PII Confidence Threshold", 0.1, 1.0, 0.4, help="Lower values catch more PII but increase false positives.")
-code_thresh = st.sidebar.slider("Code Similarity Threshold", 0.1, 1.0, 0.7, help="Lower values make the IP detector more aggressive.")
-
+# --- SIDEBAR ---
+st.sidebar.header("🛡️ Enterprise Settings")
+pii_thresh = st.sidebar.slider("PII Threshold", 0.1, 1.0, 0.4)
+code_thresh = st.sidebar.slider("IP Similarity Threshold", 0.1, 1.0, 0.7)
 st.sidebar.divider()
-st.sidebar.info("**V2.0 Core Engines:**\n- Injection: DeBERTa-v3\n- IP: MiniLM-L6 (Hybrid)\n- PII: Presidio/SpaCy")
+st.sidebar.write("✅ **Vector DB:** ChromaDB (Persistent)")
+st.sidebar.write("✅ **Inbound:** DeBERTa-v3")
 
-# --- MAIN UI ---
-st.title("🛡️ Sentinel-LLM: Bi-Directional Guardrail")
-st.markdown("Automated protection against Prompt Injection & Sensitive Data Leakage.")
+# --- MAIN TABS ---
+tab1, tab2 = st.tabs(["🔍 Security Audit", "🗄️ Vault Management"])
 
-user_input = st.text_area("Input Prompt or LLM Output:", height=150, placeholder="Paste suspicious text here...")
+with tab1:
+    st.title("🛡️ Sentinel-LLM: Real-Time Guardrail")
+    user_input = st.text_area("Input to Scan:", height=150)
 
-if st.button("🛡️ Run Security Audit"):
-    if user_input:
-        start = time.time()
-        
-        # Pass the slider values to the report engine
-        report = detector.run_report(user_input, pii_threshold=pii_thresh, code_threshold=code_thresh)
-        f = report['findings']
-        
-        # Metrics Display
-        col1, col2, col3, col4 = st.columns(4)
-        inj_label, inj_score = f['inj']
-        
-        col1.metric("Input Status", inj_label, delta=f"{inj_score:.2%}", delta_color="inverse" if inj_label != "SAFE" else "normal")
-        col2.metric("PII Found", len(f['pii']))
-        col3.metric("Secrets Found", len(f['secrets']))
-        col4.metric("IP Leaks", len(f['leaks']))
+    if st.button("🚀 Run Full Audit"):
+        if user_input:
+            start = time.time()
+            report = detector.run_report(user_input, pii_threshold=pii_thresh, code_threshold=code_thresh)
+            f = report['findings']
+            
+            # Metrics
+            c1, c2, c3, c4 = st.columns(4)
+            inj_label, inj_score = f['inj']
+            c1.metric("Input Status", inj_label, delta=f"{inj_score:.2%}", delta_color="inverse" if inj_label != "SAFE" else "normal")
+            c2.metric("PII Found", len(f['pii']))
+            c3.metric("Secrets Found", len(f['secrets']))
+            c4.metric("IP Matches", len(f['leaks']))
 
-        # Alert Logic
-        if report['status'] == "BLOCKED":
-            st.error(f"🚨 RESPONSE BLOCKED: Security Threat Detected")
-            with st.expander("Security Audit Details"):
-                if inj_label != "SAFE": st.write(f"**Injection Engine:** Detected '{inj_label}' with {inj_score:.2%} confidence.")
-                if f['leaks']: st.write(f"**IP Protection:** {len(f['leaks'])} proprietary snippet(s) flagged.")
+            if report['status'] == "BLOCKED":
+                st.error("🚨 SECURITY ALERT: Interaction Blocked")
+                with st.expander("Detailed Audit Log"):
+                    st.write(f"**Inbound Label:** {inj_label}")
+                    if f['leaks']:
+                        st.write(f"**Similarity Match:** {f['leaks'][0]['method']} detected similarity to protected IP.")
+            
+            st.subheader("Final Sanitized Result")
+            st.code(report['final_text'], language="text")
+            st.caption(f"Audit Latency: {time.time() - start:.2f}s")
         else:
-            st.success("✅ Analysis Complete: No blocking threats detected.")
+            st.error("Please provide input.")
 
-        st.subheader("Final Output")
-        st.code(report['final_text'], language="text")
-        st.caption(f"Audit completed in {time.time() - start:.2f}s")
+with tab2:
+    st.header("🗄️ Protected IP Management")
+    st.markdown("Add sensitive code or documentation to the **ChromaDB Forbidden Vault**.")
+    
+    with st.form("add_snippet"):
+        new_snippet = st.text_area("Enter Proprietary Snippet:")
+        submitted = st.form_submit_button("Add to Database")
+        if submitted and new_snippet:
+            detector.vault.add_to_vault(new_snippet)
+            st.success("Successfully embedded and stored in Vector DB.")
+            st.rerun()
+
+    st.divider()
+    st.subheader("Current Database Contents")
+    all_data = detector.vault.get_all_snippets()
+    
+    if all_data['documents']:
+        for i, doc in enumerate(all_data['documents']):
+            with st.expander(f"Snippet {i+1}"):
+                st.code(doc, language="python")
     else:
-        st.error("Please enter text to scan.")
+        st.info("The vault is currently empty. Add snippets above.")
+
+    if st.button("🗑️ Wipe Database"):
+        detector.vault.clear_vault()
+        st.warning("All proprietary data removed from database.")
+        st.rerun()
+
 
 
 #streamlit run app.py

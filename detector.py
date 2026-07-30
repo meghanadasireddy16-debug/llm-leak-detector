@@ -5,36 +5,29 @@ from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 from sentence_transformers import SentenceTransformer, util
 
-# Inbound Security Module
+# Inbound & Persistence Modules
 from injection_engine import InjectionDetector
+from vault_manager import VaultManager
 
 class LLMLeakDetector:
     def __init__(self):
-        # 1. INITIALIZE ENGINES
-        print("Initializing Security Engines (V2.0)...")
+        print("Initializing Enterprise Security Engines (V3.0)...")
         self.analyzer = AnalyzerEngine()
         self.anonymizer = AnonymizerEngine()
         self.injection_detector = InjectionDetector()
         
-        # 2. OUTBOUND: CUSTOM PII & SECRET PATTERNS
+        # 1. Scalable Vector Vault (ChromaDB)
+        self.vault = VaultManager()
+        
+        # 2. Custom Outbound Patterns
         ssn_pattern = Pattern(name="ssn_pattern", regex=r"\b\d{3}-\d{2}-\d{4}\b", score=1.0)
         ssn_recognizer = PatternRecognizer(supported_entity="US_SSN", patterns=[ssn_pattern])
         self.analyzer.registry.add_recognizer(ssn_recognizer)
         
-        # ELASTIC SECRETS: Changed length from {20,} to {12,} to be more inclusive for demo keys
         self.secret_patterns = {
             "Generic API Key": r"(?:sk|key|api|token|secret)-[a-zA-Z0-9\-_]{12,}",
             "DB_Link": r"postgresql://[a-zA-Z0-9_]+:[a-zA-Z0-9_]+@[a-zA-Z0-9.-]+:\d+/[a-zA-Z0-9_]+"
         }
-
-        # 3. OUTBOUND: SEMANTIC CODE LEAKAGE ENGINE
-        self.code_model = SentenceTransformer('all-MiniLM-L6-v2')
-        self.proprietary_vault = [
-            "def internal_secure_auth_protocol(user_id, secret_salt):",
-            "db_connection = create_engine('postgresql://internal_prod_db:5432')",
-            "def calculate_proprietary_risk_score(data):"
-        ]
-        self.vault_embeddings = self.code_model.encode(self.proprietary_vault, convert_to_tensor=True)
 
     def scan_injection(self, text: str):
         return self.injection_detector.scan(text)
@@ -51,71 +44,66 @@ class LLMLeakDetector:
         return findings
 
     def scan_code_leakage(self, text: str, threshold: float):
-        """Hybrid Vector-Similarity and Fuzzy Keyword scan."""
+        """Scalable Vector Search via ChromaDB + Fuzzy Keyword Fail-safe."""
         if not text.strip(): return []
         
         leakage_findings = []
         text_lower = text.lower()
 
-        # LAYER A: FUZZY KEYWORD MATCH (Hardened)
-        for snippet in self.proprietary_vault:
-            # Full name: 'calculate_proprietary_risk_score'
-            full_name = snippet.split('(')[0].replace('def ', '').replace('=', '').strip()
-            
-            # Fuzzy segment: 'proprietary_risk_score' (ignoring prefixes like 'calculate_')
-            fuzzy_segment = "_".join(full_name.split('_')[-3:]) 
-
-            if full_name.lower() in text_lower or fuzzy_segment.lower() in text_lower:
+        # LAYER A: FUZZY KEYWORD CHECK (Against DB documents)
+        all_protected = self.vault.get_all_snippets()['documents']
+        for snippet in all_protected:
+            # Extract core identifier (e.g., function name)
+            clean_name = snippet.split('(')[0].replace('def ', '').replace('=', '').strip()
+            if clean_name.lower() in text_lower and len(clean_name) > 5:
                 leakage_findings.append({
                     "score": 1.0, 
                     "matched_snippet": snippet,
-                    "method": "Keyword Match (Fuzzy)"
+                    "method": "Keyword Match (DB)"
                 })
 
-        # LAYER B: SEMANTIC SIMILARITY
+        # LAYER B: CHROMADB VECTOR SEARCH
         if not leakage_findings:
-            output_embedding = self.code_model.encode(text, convert_to_tensor=True)
-            cosine_scores = util.cos_sim(output_embedding, self.vault_embeddings)[0]
-            for i, score in enumerate(cosine_scores):
-                if score > threshold:
+            # Query the database for the single most similar document
+            results = self.vault.query_vault(text, n_results=1)
+            
+            if results['distances'] and results['distances'][0]:
+                distance = results['distances'][0][0]
+                similarity = 1 - distance # Convert Cosine Distance to Similarity
+                
+                if similarity > threshold:
                     leakage_findings.append({
-                        "score": float(score),
-                        "matched_snippet": self.proprietary_vault[i],
-                        "method": "Semantic Similarity"
+                        "score": float(similarity),
+                        "matched_snippet": results['documents'][0][0],
+                        "method": "ChromaDB Semantic Search"
                     })
         
         return leakage_findings
 
     def run_report(self, text: str, pii_threshold: float, code_threshold: float):
-        """Unified analysis with UI thresholds and Injection awareness."""
-        
-        # 1. INBOUND CHECK
+        """V3.0 Report Engine with Database integration."""
         inj_label, inj_score = self.scan_injection(text)
 
-        # 2. CROSS-LAYER HARDENING
-        # If any suspicion is detected, the IP engine becomes extra sensitive
-        effective_code_threshold = code_threshold if inj_label == "SAFE" else max(0.1, code_threshold - 0.2)
+        # Cross-Layer Hardening: Drop threshold if input is suspicious
+        is_suspicious = inj_label != "SAFE"
+        effective_code_threshold = code_threshold if not is_suspicious else max(0.1, code_threshold - 0.2)
 
-        # 3. OUTBOUND CHECKS
         pii = self.scan_pii(text, pii_threshold)
         secrets = self.scan_secrets(text)
         code_leaks = self.scan_code_leakage(text, effective_code_threshold)
 
-        # 4. DECISION LOGIC
         if inj_label.startswith("INJECTION") or code_leaks:
             status = "BLOCKED"
-            # Prioritize the most dangerous label for the UI
-            reason = inj_label if inj_label.startswith("INJECTION") else "IP_LEAKAGE"
+            reason = inj_label if inj_label.startswith("INJECTION") else "IP_LEAK"
             redacted = f"[BLOCKING RESPONSE: {reason} DETECTED]"
         else:
             status = "CLEAN"
-            # Redaction Logic
-            redacted_res = self.anonymizer.anonymize(
+            res = self.anonymizer.anonymize(
                 text=text, 
                 analyzer_results=pii,
                 operators={"DEFAULT": OperatorConfig("replace", {"new_value": "[REDACTED_PII]"})}
             )
-            redacted = redacted_res.text
+            redacted = res.text
             for s in secrets:
                 redacted = redacted.replace(s['value'], "[REDACTED_SECRET]")
 

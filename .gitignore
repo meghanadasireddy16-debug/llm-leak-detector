@@ -1,8 +1,25 @@
 # Python
 __pycache__/
 *.py[cod]
+.venv/
 venv/
+env/
+ENV/
 .env
+.env.*
+!.env.example
+
+# Python tooling and test coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
 
 # Streamlit
 .streamlit/
@@ -10,3 +27,6 @@ venv/
 # Models/Large Files
 models/
 .cache/
+
+# Security Vault
+security_vault/
