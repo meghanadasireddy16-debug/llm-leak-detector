@@ -10,7 +10,7 @@ from injection_engine import InjectionDetector
 from vault_manager import VaultManager
 
 class LLMLeakDetector:
-    def __init__(self):
+    def __init__(self, vault_path="./security_vault"):
         print("Initializing Enterprise Security Engines (V3.0)...")
         self.analyzer = AnalyzerEngine()
         self.anonymizer = AnonymizerEngine()
