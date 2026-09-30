@@ -161,15 +161,6 @@ Full technical documentation for V3 is available in [`docs/sentinel-llm-v3-techn
 
 🔳 **API Wrapper:** FastAPI implementation for production middleware deployment.
 
----
-## ⚖️ License
 
-Distributed under the Apache License 2.0. See `LICENSE` for more information.
-
-## 🤝 Contact
-
-Manuela Schrittwieser - [LinkedIn](https://www.linkedin.com/in/manuela-schrittwieser/) - [NeuralStack | MS - Tech Blog](https://neuralstackms.tech/)
-
-Project Link: [https://github.com/MANU-de/llm-leak-detector](https://github.com/MANU-de/llm-leak-detector)
 
 
